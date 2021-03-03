@@ -1,0 +1,1729 @@
+---
+title: "Data Science - Project 2"
+author: "DataPros"
+date: "Dec. 3rd, 2019"  
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=F}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::knit_meta(class=NULL, clean = TRUE)
+options(scientific=T, digits = 3) 
+```
+
+```{r basicfcn, include=F}
+# can add quietly=T option to the require() function
+loadPkg = function(x) { if (!require(x,character.only=T, quietly =T)) { install.packages(x,dep=T,repos="http://cran.us.r-project.org"); if(!require(x,character.only=T)) stop("Package not found") } }
+loadPkg("pscl") #to use McFadden
+library(broom)
+```
+
+```{r processing, include=F}
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+require(tree)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+#library needed for decision trees
+library(ISLR)
+library(FNN) 
+library(class)
+#data(package="ISLR")
+library(knitr)
+library(printr)
+library(leaps)
+library(C50)
+#library(RWeka)
+library(party)  
+library(caret)
+library("rattle")
+```
+
+# Background and Results from Project 1
+
+## The MONICA Project and Dataset
+
+The MONICA Project, or the Multinational Monitoring of Trends and Determinants in Cardiovascular Disease, began enrolling participants in the fall of 1984. The main objective of the study was to "measure the trends and determinants in cardiovascular mortality and coronary heart disease and cerebrovascular disease morbidity and to assess the extent to which these trends are related to changes in known risk factors, daily living habits, health care, or major socio-economic features measured at the same time in defined communities in different countries."^1^ The study had two main null hypotheses, 1) "among the reporting units, there is no relationship between 10 year trends in serum cholesterol, blood pressure, and cigarette consumption and 10 year trends in coronary heart disease incidence rates," and 2) among the reporting units, there is no relationship between 10 year trends in 28 day case fatality rates and 10 year trends in acute coronary care." A total of 41 MONICA Collaborating Centers were established, which studied 118 reporting units, representing a total population aged 25-64 of approximately 15 million people. The researchers conducted annual surveys within each of the 118 reporting units to measure the trends and determinants of cardiovascular mortality.
+
+## Project 1 SMART Research Question and Study Aims
+What are the specific demographic and physiological indicators that are associated with the outcome of mortality from cardiovascular disease and what is the strength of those associations among a globally representative sample taken between 1985 and 1993?
+
+**Study Aim 1**: To perform a Chi-square analysis to assess the independence of each demographic and physiological risk factor with mortality from cardiovascular disease.
+
+**Hypothesis**: We expect to see mortality from cardiovascular disease to be significantly dependant for all physiological indicators and demographic indicators.  
+
+**Study Aim 2**: To perform a Chi-square analysis to assess the independence of each physiological risk factor with mortality from cardiovascular disease after stratifying by the sex of the participant. 
+
+**Hypothesis**: We expect to see the outcome of mortality from cardiovascular disease to be significantly dependant for all physiological indicators in each sex stratum. 
+
+**Study Aim 3**: To measure the strength of association between each demographic and physiological indicator with the outcome of mortality from cardiovascular disease. 
+
+**Hypothesis**: We expect that participants with specific physiological indicators will have a significantly increased odds of mortality from cardiovascular disease compared to participants without the same physiological indicators. Further, we expect to see a decreased odds of mortality for those diagnosed at a younger age compared to those diagnosed at an older age and decreased odds of mortality for those with a later year of onset compared to those with an earlier year of onset.
+
+
+## Summary of Exploratory Data Analysis
+
+
+### Inspect dataset: Data Dictionary
+```{r include=F}
+monica <- data.frame(read.csv("monica.csv", header = TRUE, stringsAsFactors = F))
+str(monica)
+```
+
+The MONICA dataset has a total of 6367 observations and 13 variables. The variables include a participant ID, the outcome variable, and 11 explanatory variables. A brief description of the variables is presented below:
+
+**ID and Outcome Variables**
+
+
+**Participant ID:** categorical
+
+
+**Outcome:** mortality from cardiovascular disease. Dichotomous, categorical variable (live/dead)
+
+**Explanatory Variables**
+
+
+**Sex:** Sex of the participant. Dichotomous, categorical variable (f/m)
+
+
+**Age:** Age of the participant at onset of cardiovascular disease. Continuous variable. 
+
+
+**Yronset:** Year during which the participant was diagnosed with cardiovascular disease. Discrete variable (19xx).
+
+
+**Premi:** Previous myocardial infarction (MI) event. Categorical variable (y/n/nk not known)
+
+
+**Smstat:** Smoking status. Ordinal, categorical variable (c current/x ex-smoker/n non-smoker/ nk not known).
+
+
+**Diabetes:** Diabetes status (y/n/nk not known)
+
+
+**Highbp:** High blood pressure status (y/n/nk not known)
+
+
+**Hichol:** High cholesterol status (y/n/nk not known)
+
+
+**Angina:** Agina status (y/n/nk not known)
+
+
+**Stroke:** Stroke status (y/n/nk not known)
+
+
+**Hosp:** Hospitalization status at the time of diagnosis of cardiovascular disease (y/n)
+
+For the overall frequency of mortality from cardiovascular disease in the study population, we looked at the frequencies of the factors for the outcome. 
+
+
+**Mortality from Cardiovascular Disease**
+```{r echo=FALSE}
+vlive<-subset(monica, outcome=="live",select=c(outcome))
+nlive<-nrow(vlive)
+vdead<-subset(monica, outcome=="dead", select=c(outcome))
+ndead<-nrow(vdead)
+total<-nrow(monica)
+```
+| YES             | NO                    | TOTAL   |
+|-----------------|-----------------------|---------|
+|`r nlive`        |`r ndead`              |`r total`
+
+Of the 6367 participants in the study, 2842 did experience the outcome (44.64%) and 3525 did not experience the outcome (55.36%), with zero missing values.  
+
+We then looked at the frequency of each of the 9 categorical explanatory variables: 
+
+```{r echo=FALSE}
+vfsex<-subset(monica, sex=="f",select=c(outcome))
+nfsex<-nrow(vfsex)
+vmsex<-subset(monica, sex=="m",select=c(outcome))
+nmsex<-nrow(vmsex)
+nk1<-nrow(subset(monica,sex=="nk", select=c(outcome)))
+
+
+ypre<-nrow(subset(monica, premi=="y",select=c(outcome)))
+npre<-nrow(subset(monica, premi=="n",select=c(outcome)))
+nk2<-nrow(subset(monica,premi=="nk", select=c(outcome)))
+
+
+ydia<-nrow(subset(monica, diabetes=="y",select=c(outcome)))
+ndia<-nrow(subset(monica, diabetes=="n",select=c(outcome)))
+nk3<-nrow(subset(monica,diabetes=="nk", select=c(outcome)))
+
+
+yhi<-nrow(subset(monica, highbp=="y",select=c(outcome)))
+nhi<-nrow(subset(monica, highbp=="n",select=c(outcome)))
+nk4<-nrow(subset(monica,highbp=="nk", select=c(outcome)))
+
+yco<-nrow(subset(monica, hichol=="y",select=c(outcome)))
+nco<-nrow(subset(monica, hichol=="n",select=c(outcome)))
+nk5<-nrow(subset(monica,hichol=="nk", select=c(outcome)))
+
+
+yan<-nrow(subset(monica, angina=="y",select=c(outcome)))
+nn<-nrow(subset(monica, angina=="n",select=c(outcome)))
+nk6<-nrow(subset(monica,angina=="nk", select=c(outcome)))
+
+
+yst<-nrow(subset(monica, stroke=="y",select=c(outcome)))
+nst<-nrow(subset(monica, stroke=="n",select=c(outcome)))
+nk7<-nrow(subset(monica,stroke=="nk", select=c(outcome)))
+
+
+
+yhosp<-nrow(subset(monica, hosp=="y",select=c(outcome)))
+nhosp<-nrow(subset(monica, hosp=="n",select=c(outcome)))
+nk8<-nrow(subset(monica,hosp=="nk", select=c(outcome)))
+
+
+xsmt<-nrow(subset(monica, smstat=="x",select=c(outcome)))
+csmt<-nrow(subset(monica, smstat=="c",select=c(outcome)))
+nsmt<-nrow(subset(monica, smstat=="n",select=c(outcome)))
+nk9<-nrow(subset(monica, smstat=="nk", select=c(outcome)))
+
+```
+
+
+| Variable (n=6367)|Male          | Female  |Not Known      |          |
+|------------------|--------------|---------|---------------|----------|
+|SEX               |`r nfsex`     |`r nmsex`| `r nk1`       |          |
+|                  |YES           |NO       | NOT KNOWN     |          |
+|PREVIOUS MI EVENT |`r ypre`      |`r npre` | `r nk2`       |          |
+|DIABETES          |`r ydia`      |`r ndia` | `r nk3`       |          |
+|HIGH BP           |`r yhi `      |`r nhi ` | `r nk4`       |          |
+|HIGH BP           |`r yco `      |`r nco ` | `r nk5`       |          |
+|ANGINA            |`r yan `      |`r nn  ` | `r nk6`       |          |
+|STROKE            |`r yst `      |`r nst ` | `r nk7`       |          |
+|HOSPITALIZATION   |`r yhosp `    |`r nhosp`| `r nk8`       |          |
+|                  |CURRENT       |EX-SMOKER| NEVER SMOKER  |NOT KNOWN |
+|SMOKING STATUS    |`r csmt`      |`r xsmt `| `r nsmt`      |`r nk9`   |
+
+
+Next, we inspected the average and spread of the two continuous variables - age at diagnosis of cardiovascular disease and year of onset of cardiovascular disease. 
+
+```{r , echo=FALSE, warning=F}
+ggplot(aes(x = age),data = monica) +
+    geom_histogram(binwidth = 1,col = "black",fill = "cyan") +
+    xlim(c(35,67)) +
+    ggtitle("Distribution of the Sample by Age at Diagnosis") +
+     labs(x='Age at Diagnosis', y='Count')
+```
+
+```{r echo=FALSE}
+monica55to75 <- subset(monica, age >= 55)
+ggplot(aes(x = monica55to75$sex),data = monica55to75) +
+    geom_bar(fill = c("blue","gold")) +
+     scale_x_discrete(labels = c("Females", "Males")) +
+    labs(title= "Distribution of the Sample by Sex, Age at Diagnosis 55+", x="Sex", y="Count")
+```
+
+
+```{r echo=FALSE}
+#plot by groups of ages and sex
+ggplot(data=monica, aes(age, fill=sex)) + 
+  geom_bar(color= "#01068a", width = 0.5, position = position_dodge()) + 
+  labs(title="Distribution of Sample by Sex and Age at Diagnosis", y="Count", x="Age at Diagnosis") 
+```
+
+
+```{r echo=FALSE}
+#plot by groups of year of onset and sex
+ggplot(data=monica, aes(yronset, fill=sex)) + 
+  geom_bar(color= "#01068a", width = 0.5, position = position_dodge()) + 
+  labs(title="Distribution of Sample by Sex and Year of Onset", y="Total", x="Year of Onset") 
+```
+
+Further, we explored the distribution of mortality by the year of onset and sex of participants. When examining the box plots, we see that for both groups that experienced or did not experience the outcome, the distribution between females and males are nearly the same. The only difference being that among those who experienced the event, males distribution was slightly more skewed to the right compared to females. This reflects the same observation that we saw in the bar chart, showing a decreasing trend in mortality for males over time.
+
+```{r echo=FALSE}
+ggplot(monica, aes(x=monica$outcome, y=yronset, fill=sex)) + 
+  geom_boxplot() + 
+  labs(title= "Year of Onset of Cardiovascular Diseases, Grouped by Sex and Outcome", x="Outcome", y="Year of Onset") + scale_x_discrete(labels = c("Dead", "Live"))
+```
+
+
+### General Observations of the Exploratory Data Analysis
+
+**Unknown Statuses**
+Of the 11 categorical variables that were assessed, only outcome, sex, and hospitalization at time of cardiovascular disease diagnosis had a complete recording of known values. The remaining 7 explanatory variables had very high rates of unknown values recorded, all at greater than 10%. The 3 explanatory variables with the highest rates of unknown values were cholesterol status (19.36%), angina status (15.31%), and high blood pressure status (14.89%). 
+
+High rates of unknown statuses among the explanatory variables could greatly impact the results of our primary data analyses. First, missing data will reduce the statistical power of our sample, resulting in a higher probability of Type II error, or a greater likelihood that we would fail to reject a false null hypothesis. Secondly, missing data is a type of information bias that, depending on how the data was collected, may result in the differential or non-differential misclassification of our explanatory variables. If the unknown statuses of a certain explanatory variable were determined to be spread randomly across our study population, then we would conclude that there was a non-differential misclassification of the exposure, which would bias our measure of association toward the null. Alternatively, if the unknown statuses of a certain explanatory variable were not spread randomly across our study population, then we would conclude that there was a differential misclassification of the exposure, which would bias our measure of association upward or downward depending on the mortality rate among those with the misclassified exposure. Taken together, we’ll need to carefully consider how the high rates of unknown statues may impact our conclusions when interpreting the results our primary data analyses.
+
+**Non-normal Distribution of Demographic Explanatory Variables**
+Both of the continuous demographic explanatory variables follow a non-normal distribution. For both men and women, the age at which a participant was diagnosed with cardiovascular disease is skewed strongly to the left. This is expected since the incidence of cardiovascular disease increases with age. Thus, we would expect very few participants to have an age of diagnosis younger than 50. The opposite is true for the year of onset of cardiovascular disease, for which the distributions for both men and women are skewed to the right. This is expected since as time progresses, a greater number of efficacious measures are introduced to prevent cardiovascular disease. Thus, we would expect to see higher rates of cardiovascular disease diagnoses at earlier time points. We will need to be aware of these non-normal distributions in our Chi-square and logistic regression analyses. 
+
+Additionally, we see that the study sample is overwhelmingly male (72.28%). If we find that mortality from cardiovascular disease is dependent on the sex of the participant in our Chi-square analysis, then we will have to assess whether sex is a confounder or effect modifier when measuring the association of the various physiological explanatory variables in our logistic regression analyses. We suspect that sex may be a associated with mortality based upon the differing distrubtions that we saw.    
+
+## Project 1 - Key Takeaways
+
+Following Exploratory Data Analysis, and Chi-Square and Logistic Regression univariate analysis, the key takeaways are:
+
+- For the risk factors that were associated with the outcome, most lead to an increased odds in mortality.
+
+- Interestingly, having high cholesterol lead to a decreased odds of mortality from cardiovascular disease.
+
+- Hospitalization status produced a very extreme odds ratio - 0.0004.
+  For those who died, likely never made it to the hospital following the event. Potential confounding by severity of event?
+
+- Mortality status was independent of a participants sex, however, when stratified by sex, some differences in independence for certain predictors - suspected interaction.
+
+
+\
+
+
+# Project 2
+
+As described above, in Project 1 we sought to identify the explanatory variables that were associated with cardiovascular disease, the strength of these associations, and whether the associations changed depending upon the sex of the subject. Based upon our results and conclusions, the next phase of our analysis is to determine which combination of explanatory variables best predicts the out of mortality from cardiovascular disease. 
+
+In Project 2, we used the following analyses to optimize the predicting capability of our model: forward selection logistic regression, K-nearest neighbor (KNN), decision trees and random forest using Bayesian Information Criteria (BIC) selection. Each of these methods and the results from the analyses will be detailed in subsequent sections.  
+
+
+\
+
+
+## Project 2 SMART Research Question and Study Aims
+
+After stratifying by sex, what combination of demographic and physiological predictors most accurately predict mortality from cardiovascular disease among a globally representative sample taken between 1985 and 1993?
+
+**Study Aim 1**: To use a forward selection multivariable logistic regression model to identify the combination of demographic and physiological risk factors that will most accurately predict mortality from cardiovascular disease.
+
+**Hypothesis**: We expect the four explanatory factors with the highest odds of mortality to form the combination of predictors that will most accurately predict mortality from cardiovascular disease.  
+
+**Study Aim 2**: To perform a KNN analysis to predict the outcome of mortality from cardiovascular disease. 
+
+**Hypothesis**: We expect to see that our prediction of the outcome will improve as the number of clusters increases. 
+
+**Study Aim 3**: Using Bayesian Information Criteria to find the most important features. Subsetting the data using these features and using the same for decision trees and random forrest analysis.
+
+**Hypothesis**: We expect the combination of explanatory variables that result in the lowest BIC value to most accurately predict mortality from cardiovascular disease. 
+
+
+\
+
+
+## Study Aim 1 - Multivariate Logistic Regression, stratified by sex
+
+Our first study aim seeks to identify the combination of demographic and physiological risk factors that will most accurately predict mortality from cardiovascular disease. In order to statistically assess how well the multivariable logistic regression models predict the outcome, we used a forward stepwise selection method and measured the McFadden pseudo R2 values, further referred to as the R2 value. Our forward stepwise selection process started with hospitalization status, since it was the most significantly associated predictor for mortality. Individual predictors were then added to the multivariable logistic regression model in successive order based upon maximizing the R2 value. The R2 value is calculated by using the following formula:
+
+R2 = 1 - [loglik(fitted model)]/[loglik(intercept)]
+
+where loglik is the log-likelihood. The R2 value measure the total variation in the outcome that is predicted by the explanatory variables in the regression model. Thus, the higher the R2 value, the more accurately we're able to predict the outcome.^2^
+
+```{r include=F}
+monica <- data.frame(read.csv("monica.csv", header = TRUE))
+#Copy dataset
+monica.na <- monica
+#Convert all nk in the dataset to NA
+monica.na <- na_if(monica.na, 'nk')
+str(monica.na)
+```
+
+
+```{r include=F}
+#copy dataset
+monica.co <- monica.na
+str(monica.co)
+```
+
+```{r include=F}
+#create new column and convert outcome to 0 and 1
+monica.co$coutcome <- monica$outcome
+monica.co$outcome <-  revalue(monica.co$outcome, c("live"=1, "dead"=0))
+monica.co$outcome <- as.factor(monica.co$outcome)
+#inspect outcome
+summary(monica.co$outcome)
+#copy back to monica.na
+monica.na <- monica.co
+summary(monica.na$outcome)
+```
+
+```{r include=F}
+#Prepare dataframe by creating bins for numerical data
+#copy dataframe
+monica.na.bin <- monica.na
+#inspect age
+summary(monica.na.bin$age)
+#bin age in new column
+monica.na.bin$agecat <- cut(monica.na.bin$age, c(34.5, 39.5, 44.5, 49.5, 54.5, 59.5, 64.5, 69.5))
+summary(monica.na.bin$agecat)
+str(monica.na.bin)
+```
+
+```{r include=F}
+#inspect yronset
+summary(monica.na.bin$yronset)
+#bin yronset in new column
+monica.na.bin$yronsetcat <- cut(monica.na.bin$yronset, c(8.45, 89.5, 94.5))
+summary(monica.na.bin$yronsetcat)
+str(monica.na.bin)
+```
+
+
+```{r include=F}
+#Subset by sex
+monica.na.bin.f <- subset(monica.na.bin, sex == 'f')
+monica.na.bin.m <- subset(monica.na.bin, sex == 'm')
+summary(monica.na.bin.f$outcome)
+summary(monica.na.bin.m$outcome)
+summary(monica.na.bin.f)
+```
+
+
+```{r include=F}
+#perform logistic regression by individual variable
+glmf1<-glm(outcome ~ hosp, data = monica.na.bin.f, family = "binomial")
+glmf2<-glm(outcome ~ hichol, data = monica.na.bin.f, family = "binomial")
+glmf3<-glm(outcome ~ agecat, data = monica.na.bin.f, family = "binomial")
+glmf4<-glm(outcome ~ stroke, data = monica.na.bin.f, family = "binomial")
+glmf5<-glm(outcome ~ diabetes, data = monica.na.bin.f, family = "binomial")
+glmf6<-glm(outcome ~ yronsetcat, data = monica.na.bin.f, family = "binomial")
+glmf7<-glm(outcome ~ smstat, data = monica.na.bin.f, family = "binomial")
+glmf8<-glm(outcome ~ angina, data = monica.na.bin.f, family = "binomial")
+glmf9<-glm(outcome ~ premi, data = monica.na.bin.f, family = "binomial")
+glmf10<-glm(outcome ~ highbp, data = monica.na.bin.f, family = "binomial")
+#run McFadden
+glmf1pr2 = pR2(glmf1)
+glmf1pr2
+glmf2pr2 = pR2(glmf2)
+glmf2pr2
+glmf3pr2 = pR2(glmf3)
+glmf3pr2
+glmf4pr2 = pR2(glmf4)
+glmf4pr2
+glmf5pr2 = pR2(glmf5)
+glmf5pr2
+glmf6pr2 = pR2(glmf6)
+glmf6pr2
+glmf7pr2 = pR2(glmf7)
+glmf7pr2
+glmf8pr2 = pR2(glmf8)
+glmf8pr2
+glmf9pr2 = pR2(glmf9)
+glmf9pr2
+glmf10pr2 = pR2(glmf10)
+glmf10pr2
+```
+
+
+```{r include=F}
+#perform logistic regression with 2 variables: hosp + var2
+glmf11<-glm(outcome ~ hosp+hichol, data = monica.na.bin.f, family = "binomial")
+glmf12<-glm(outcome ~ hosp+agecat, data = monica.na.bin.f, family = "binomial")
+glmf13<-glm(outcome ~ hosp+stroke, data = monica.na.bin.f, family = "binomial")
+glmf14<-glm(outcome ~ hosp+diabetes, data = monica.na.bin.f, family = "binomial")
+glmf15<-glm(outcome ~ hosp+yronsetcat, data = monica.na.bin.f, family = "binomial")
+glmf16<-glm(outcome ~ hosp+smstat, data = monica.na.bin.f, family = "binomial")
+glmf17<-glm(outcome ~ hosp+angina, data = monica.na.bin.f, family = "binomial")
+glmf18<-glm(outcome ~ hosp+premi, data = monica.na.bin.f, family = "binomial")
+glmf19<-glm(outcome ~ hosp+highbp, data = monica.na.bin.f, family = "binomial")
+#run McFadden
+glmf11pr2 = pR2(glmf11)
+glmf11pr2
+glmf12pr2 = pR2(glmf12)
+glmf12pr2
+glmf13pr2 = pR2(glmf13)
+glmf13pr2
+glmf14pr2 = pR2(glmf14)
+glmf14pr2
+glmf15pr2 = pR2(glmf15)
+glmf15pr2
+glmf16pr2 = pR2(glmf16)
+glmf16pr2
+glmf17pr2 = pR2(glmf17)
+glmf17pr2
+glmf18pr2 = pR2(glmf18)
+glmf18pr2
+glmf19pr2 = pR2(glmf19)
+glmf19pr2
+```
+
+
+```{r include=F}
+#perform logistic regression variables hosp + hichol + var3
+glmf20<-glm(outcome ~ hosp+hichol+agecat, data = monica.na.bin.f, family = "binomial")
+glmf21<-glm(outcome ~ hosp+hichol+stroke, data = monica.na.bin.f, family = "binomial")
+glmf22<-glm(outcome ~ hosp+hichol+diabetes, data = monica.na.bin.f, family = "binomial")
+glmf23<-glm(outcome ~ hosp+hichol+yronsetcat, data = monica.na.bin.f, family = "binomial")
+glmf24<-glm(outcome ~ hosp+hichol+smstat, data = monica.na.bin.f, family = "binomial")
+glmf25<-glm(outcome ~ hosp+hichol+angina, data = monica.na.bin.f, family = "binomial")
+glmf26<-glm(outcome ~ hosp+hichol+premi, data = monica.na.bin.f, family = "binomial")
+glmf27<-glm(outcome ~ hosp+hichol+highbp, data = monica.na.bin.f, family = "binomial")
+#run McFadden
+glmf20pr2 = pR2(glmf20)
+glmf20pr2
+glmf21pr2 = pR2(glmf21)
+glmf21pr2
+glmf22pr2 = pR2(glmf22)
+glmf22pr2
+glmf23pr2 = pR2(glmf23)
+glmf23pr2
+glmf24pr2 = pR2(glmf24)
+glmf24pr2
+glmf25pr2 = pR2(glmf25)
+glmf25pr2
+glmf26pr2 = pR2(glmf26)
+glmf26pr2
+glmf27pr2 = pR2(glmf27)
+glmf27pr2
+```
+
+
+```{r include=F}
+#perform logistic regression variables hosp + hichol + smstat + var4
+glmf28<-glm(outcome ~ hosp+hichol+smstat+agecat, data = monica.na.bin.f, family = "binomial")
+glmf29<-glm(outcome ~ hosp+hichol+smstat+stroke, data = monica.na.bin.f, family = "binomial")
+glmf30<-glm(outcome ~ hosp+hichol+smstat+diabetes, data = monica.na.bin.f, family = "binomial")
+glmf31<-glm(outcome ~ hosp+hichol+smstat+yronsetcat, data = monica.na.bin.f, family = "binomial")
+glmf32<-glm(outcome ~ hosp+hichol+smstat+angina, data = monica.na.bin.f, family = "binomial")
+glmf33<-glm(outcome ~ hosp+hichol+smstat+premi, data = monica.na.bin.f, family = "binomial")
+glmf34<-glm(outcome ~ hosp+hichol+smstat+highbp, data = monica.na.bin.f, family = "binomial")
+#run McFadden
+glmf28pr2 = pR2(glmf28)
+glmf28pr2
+glmf29pr2 = pR2(glmf29)
+glmf29pr2
+glmf30pr2 = pR2(glmf30)
+glmf30pr2
+glmf31pr2 = pR2(glmf31)
+glmf31pr2
+glmf32pr2 = pR2(glmf32)
+glmf32pr2
+glmf33pr2 = pR2(glmf33)
+glmf33pr2
+glmf34pr2 = pR2(glmf34)
+glmf34pr2
+```
+
+
+```{r include=F}
+#perform logistic regression variables hosp + hichol + smstat + angina + var5
+
+glmf27<-glm(outcome ~ hosp+hichol+yronset+angina+age, data = monica.na.bin.f, family = "binomial")
+#perform logistic regression variables hosp + hichol + yronset + angina + stroke
+glmf28<-glm(outcome ~ hosp+hichol+yronset+angina+stroke, data = monica.na.bin.f, family = "binomial")
+#perform logistic regression variables hosp + hichol + yronset + angina + premi
+glmf29<-glm(outcome ~ hosp+hichol+yronset+angina+premi, data = monica.na.bin.f, family = "binomial")
+#perform logistic regression variables hosp + hichol + yronset + angina + diabetes
+glmf30<-glm(outcome ~ hosp+hichol+yronset+angina+diabetes, data = monica.na.bin.f, family = "binomial")
+#run McFadden
+glmf27pr2 = pR2(glmf27)
+glmf27pr2
+glmf28pr2 = pR2(glmf28)
+glmf28pr2
+glmf29pr2 = pR2(glmf29)
+glmf29pr2
+glmf30pr2 = pR2(glmf30)
+glmf30pr2
+```
+
+
+```{r include=F}
+# Female all variables
+# Next perform logistic regression
+glmf0 <-glm(outcome ~ hosp+hichol+agecat+stroke+diabetes+yronsetcat+smstat+angina+premi+highbp, data = monica.na.bin.f, family = "binomial")
+summary(glmf0)
+#run McFadden
+glmf0pr2 = pR2(glmf0)
+glmf0pr2
+```
+
+### Multivariable Logistic Regression Results
+
+**Female Subset**
+
+
+|Variables|McFadden|
+|----------------------|---|
+|Hospitalization|`r glmf1pr2['McFadden']`|
+|Hospitalization + High cholesterol|`r glmf11pr2['McFadden'
+]`|
+|Hospitalization + High cholesterol + Smoking status|`r glmf24pr2['McFadden']`|
+|Hospitalization + High cholesterol + Smoking status + Angina|`r glmf32pr2['McFadden']`|
+
+
+
+
+```{r include=F}
+#perform logistic regression by individual variable
+glmm1<-glm(outcome ~ hosp, data = monica.na.bin.m, family = "binomial")
+glmm2<-glm(outcome ~ agecat, data = monica.na.bin.m, family = "binomial")
+glmm3<-glm(outcome ~ stroke, data = monica.na.bin.m, family = "binomial")
+glmm4<-glm(outcome ~ angina, data = monica.na.bin.m, family = "binomial")
+glmm5<-glm(outcome ~ hichol, data = monica.na.bin.m, family = "binomial")
+glmm6<-glm(outcome ~ yronsetcat, data = monica.na.bin.m, family = "binomial")
+glmm7<-glm(outcome ~ premi, data = monica.na.bin.m, family = "binomial")
+glmm8<-glm(outcome ~ smstat, data = monica.na.bin.m, family = "binomial")
+glmm9<-glm(outcome ~ diabetes, data = monica.na.bin.m, family = "binomial")
+glmm10<-glm(outcome ~ highbp, data = monica.na.bin.m, family = "binomial")
+
+#run McFadden
+glmm1pr2 = pR2(glmm1)
+glmm1pr2
+glmm2pr2 = pR2(glmm2)
+glmm2pr2
+glmm3pr2 = pR2(glmm3)
+glmm3pr2
+glmm4pr2 = pR2(glmm4)
+glmm4pr2
+glmm5pr2 = pR2(glmm5)
+glmm5pr2
+glmm6pr2 = pR2(glmm6)
+glmm6pr2
+glmm7pr2 = pR2(glmm7)
+glmm7pr2
+glmm8pr2 = pR2(glmm8)
+glmm8pr2
+glmm9pr2 = pR2(glmm9)
+glmm9pr2
+glmm10pr2 = pR2(glmm10)
+glmm10pr2
+```
+
+
+```{r include=F}
+#perform logistic regression with 2 variables: hosp + var2
+glmm11<-glm(outcome ~ hosp+agecat, data = monica.na.bin.m, family = "binomial")
+glmm12<-glm(outcome ~ hosp+stroke, data = monica.na.bin.m, family = "binomial")
+glmm13<-glm(outcome ~ hosp+angina, data = monica.na.bin.m, family = "binomial")
+glmm14<-glm(outcome ~ hosp+hichol, data = monica.na.bin.m, family = "binomial")
+glmm15<-glm(outcome ~ hosp+yronsetcat, data = monica.na.bin.m, family = "binomial")
+glmm16<-glm(outcome ~ hosp+premi, data = monica.na.bin.m, family = "binomial")
+glmm17<-glm(outcome ~ hosp+smstat, data = monica.na.bin.m, family = "binomial")
+glmm18<-glm(outcome ~ hosp+diabetes, data = monica.na.bin.m, family = "binomial")
+glmm19<-glm(outcome ~ hosp+highbp, data = monica.na.bin.m, family = "binomial")
+
+#run McFadden
+glmm11pr2 = pR2(glmm11)
+glmm11pr2
+glmm12pr2 = pR2(glmm12)
+glmm12pr2
+glmm13pr2 = pR2(glmm13)
+glmm13pr2
+glmm14pr2 = pR2(glmm14)
+glmm14pr2
+glmm15pr2 = pR2(glmm15)
+glmm15pr2
+glmm16pr2 = pR2(glmm16)
+glmm16pr2
+glmm17pr2 = pR2(glmm17)
+glmm17pr2
+glmm18pr2 = pR2(glmm18)
+glmm18pr2
+glmm19pr2 = pR2(glmm19)
+glmm19pr2
+```
+
+
+```{r include=F}
+#perform logistic regression with 3 variables: hosp + hichol + var3
+glmm20<-glm(outcome ~ hosp+hichol+agecat, data = monica.na.bin.m, family = "binomial")
+glmm21<-glm(outcome ~ hosp+hichol+stroke, data = monica.na.bin.m, family = "binomial")
+glmm22<-glm(outcome ~ hosp+hichol+angina, data = monica.na.bin.m, family = "binomial")
+glmm23<-glm(outcome ~ hosp+hichol+yronsetcat, data = monica.na.bin.m, family = "binomial")
+glmm24<-glm(outcome ~ hosp+hichol+premi, data = monica.na.bin.m, family = "binomial")
+glmm25<-glm(outcome ~ hosp+hichol+smstat, data = monica.na.bin.m, family = "binomial")
+glmm26<-glm(outcome ~ hosp+hichol+diabetes, data = monica.na.bin.m, family = "binomial")
+glmm27<-glm(outcome ~ hosp+hichol+highbp, data = monica.na.bin.m, family = "binomial")
+
+#run McFadden
+glmm20pr2 = pR2(glmm20)
+glmm20pr2
+glmm21pr2 = pR2(glmm21)
+glmm21pr2
+glmm22pr2 = pR2(glmm22)
+glmm22pr2
+glmm23pr2 = pR2(glmm23)
+glmm23pr2
+glmm24pr2 = pR2(glmm24)
+glmm24pr2
+glmm25pr2 = pR2(glmm25)
+glmm25pr2
+glmm26pr2 = pR2(glmm26)
+glmm26pr2
+glmm27pr2 = pR2(glmm27)
+glmm27pr2
+```
+
+
+
+```{r include=F}
+#perform logistic regression with 4 variables: hosp + hichol + angina + var4
+glmm28<-glm(outcome ~ hosp+hichol+angina+agecat, data = monica.na.bin.m, family = "binomial")
+glmm29<-glm(outcome ~ hosp+hichol+angina+stroke, data = monica.na.bin.m, family = "binomial")
+glmm30<-glm(outcome ~ hosp+hichol+angina+yronsetcat, data = monica.na.bin.m, family = "binomial")
+glmm31<-glm(outcome ~ hosp+hichol+angina+premi, data = monica.na.bin.m, family = "binomial")
+glmm32<-glm(outcome ~ hosp+hichol+angina+smstat, data = monica.na.bin.m, family = "binomial")
+glmm33<-glm(outcome ~ hosp+hichol+angina+diabetes, data = monica.na.bin.m, family = "binomial")
+glmm34<-glm(outcome ~ hosp+hichol+angina+highbp, data = monica.na.bin.m, family = "binomial")
+
+#run McFadden
+glmm28pr2 = pR2(glmm28)
+glmm28pr2
+glmm29pr2 = pR2(glmm29)
+glmm29pr2
+glmm30pr2 = pR2(glmm30)
+glmm30pr2
+glmm31pr2 = pR2(glmm31)
+glmm31pr2
+glmm32pr2 = pR2(glmm32)
+glmm32pr2
+glmm33pr2 = pR2(glmm33)
+glmm33pr2
+glmm34pr2 = pR2(glmm34)
+glmm34pr2
+```
+
+
+```{r include=F}
+#perform logistic regression with 5 variables: hosp + hichol + angina + age + var5
+glmm35<-glm(outcome ~ hosp+hichol+angina+agecat+stroke, data = monica.na.bin.m, family = "binomial")
+glmm36<-glm(outcome ~ hosp+hichol+angina+agecat+yronsetcat, data = monica.na.bin.m, family = "binomial")
+glmm37<-glm(outcome ~ hosp+hichol+angina+agecat+premi, data = monica.na.bin.m, family = "binomial")
+glmm38<-glm(outcome ~ hosp+hichol+angina+agecat+smstat, data = monica.na.bin.m, family = "binomial")
+glmm39<-glm(outcome ~ hosp+hichol+angina+agecat+diabetes, data = monica.na.bin.m, family = "binomial")
+glmm40<-glm(outcome ~ hosp+hichol+angina+agecat+highbp, data = monica.na.bin.m, family = "binomial")
+
+#run McFadden
+glmm35pr2 = pR2(glmm35)
+glmm35pr2
+glmm36pr2 = pR2(glmm36)
+glmm36pr2
+glmm37pr2 = pR2(glmm37)
+glmm37pr2
+glmm38pr2 = pR2(glmm38)
+glmm38pr2
+glmm39pr2 = pR2(glmm39)
+glmm39pr2
+glmm40pr2 = pR2(glmm40)
+glmm40pr2
+```
+
+
+```{r include=F}
+#perform logistic regression with 6 variables: hosp + hichol + angina + age + premi + var6
+glmm41<-glm(outcome ~ hosp+hichol+angina+agecat+premi+stroke, data = monica.na.bin.m, family = "binomial")
+glmm42<-glm(outcome ~ hosp+hichol+angina+agecat+premi+yronsetcat, data = monica.na.bin.m, family = "binomial")
+glmm43<-glm(outcome ~ hosp+hichol+angina+agecat+premi+smstat, data = monica.na.bin.m, family = "binomial")
+glmm44<-glm(outcome ~ hosp+hichol+angina+agecat+premi+diabetes, data = monica.na.bin.m, family = "binomial")
+glmm45<-glm(outcome ~ hosp+hichol+angina+agecat+premi+highbp, data = monica.na.bin.m, family = "binomial")
+#run McFadden
+glmm41pr2 = pR2(glmm41)
+glmm41pr2
+glmm42pr2 = pR2(glmm42)
+glmm42pr2
+glmm43pr2 = pR2(glmm43)
+glmm43pr2
+glmm44pr2 = pR2(glmm44)
+glmm44pr2
+glmm45pr2 = pR2(glmm45)
+glmm45pr2
+```
+
+
+```{r include=F}
+#perform logistic regression with 7 variables: hosp + hichol + angina + age + premi + stroke + var7
+glmm46<-glm(outcome ~ hosp+hichol+angina+agecat+premi+stroke+yronsetcat, data = monica.na.bin.m, family = "binomial")
+glmm47<-glm(outcome ~ hosp+hichol+angina+agecat+premi+stroke+smstat, data = monica.na.bin.m, family = "binomial")
+glmm48<-glm(outcome ~ hosp+hichol+angina+agecat+premi+stroke+diabetes, data = monica.na.bin.m, family = "binomial")
+glmm49<-glm(outcome ~ hosp+hichol+angina+agecat+premi+stroke+highbp, data = monica.na.bin.m, family = "binomial")
+
+#run McFadden
+glmm46pr2 = pR2(glmm46)
+glmm46pr2
+glmm47pr2 = pR2(glmm47)
+glmm47pr2
+glmm48pr2 = pR2(glmm48)
+glmm48pr2
+glmm49pr2 = pR2(glmm49)
+glmm49pr2
+```
+
+
+```{r include=F}
+#perform logistic regression with 8 variables: hosp + hichol + angina + age + premi + stroke + smstat + var8
+glmm50<-glm(outcome ~ hosp+hichol+angina+agecat+premi+stroke+smstat+yronsetcat, data = monica.na.bin.m, family = "binomial")
+glmm51<-glm(outcome ~ hosp+hichol+angina+agecat+premi+stroke+smstat+diabetes, data = monica.na.bin.m, family = "binomial")
+glmm52<-glm(outcome ~ hosp+hichol+angina+agecat+premi+stroke+smstat+highbp, data = monica.na.bin.m, family = "binomial")
+
+#run McFadden
+glmm50pr2 = pR2(glmm50)
+glmm50pr2
+glmm51pr2 = pR2(glmm51)
+glmm51pr2
+glmm52pr2 = pR2(glmm52)
+glmm52pr2
+```
+
+
+```{r include=F}
+#perform logistic regression with 9 variables: hosp + hichol + angina + age + premi + stroke + smstat + yronset + var9
+glmm53<-glm(outcome ~ hosp+hichol+angina+agecat+premi+stroke+smstat+yronsetcat+diabetes, data = monica.na.bin.m, family = "binomial")
+glmm54<-glm(outcome ~ hosp+hichol+angina+agecat+premi+stroke+smstat+yronsetcat+highbp, data = monica.na.bin.m, family = "binomial")
+
+#run McFadden
+glmm53pr2 = pR2(glmm53)
+glmm53pr2
+glmm54pr2 = pR2(glmm54)
+glmm54pr2
+```
+
+
+```{r include=F}
+# MALE ALL VARIABLES
+# Next perform logistic regression
+glmm0 <-glm(outcome ~ hosp+agecat+stroke+angina+hichol+yronsetcat+premi+smstat+diabetes+highbp, data = monica.na.bin.m, family = "binomial")
+summary(glmm0)
+#run McFadden
+glmm0pr2 = pR2(glmm0)
+glmm0pr2
+```
+
+
+**Male Subset**
+
+|Variables|McFadden|
+|------------------------|---|
+|Hospitalization|`r glmm1pr2['McFadden']`|
+|Hospitalization + High cholesterol|`r glmm14pr2['McFadden'
+]`|
+|Hospitalization + High cholesterol + Angina|`r glmm22pr2['McFadden']`|
+|Hospitalization + High cholesterol + Angina + Age at diagnosis|`r glmm28pr2['McFadden']`|
+|Hospitalization + High cholesterol + Angina + Age at Diagnosis + PREMI|`r glmm37pr2['McFadden']`|
+|Hospitalization + High cholesterol + Angina + Age at Diagnosis + PREMI + Stroke|`r glmm41pr2['McFadden']`|
+|Hospitalization + High cholesterol + Angina + Age at Diagnosis + PREMI + Stroke + Smoking status|`r glmm47pr2['McFadden']`|
+|Hospitalization + High cholesterol + Angina + Age at Diagnosis + PREMI + Stroke + Smoking status + Year of onset|`r glmm50pr2['McFadden']`|
+|Hospitalization + High cholesterol + Angina + Age at Diagnosis + PREMI + Stroke + Smoking status + Year of onset + High Blood Pressure|`r glmm54pr2['McFadden']`|
+|Full model, all features|`r glmm0pr2['McFadden']`|
+
+### Multivariable Logistic Regression: Key Takeaways
+
+The stepwise selection process results in non-meaningful increases in R2 values after adding 3 predictors to the stratified models.
+Even with all explanatory variables included in our stratified analyses, the full model is still not fitting the data very well, with approximately 55-65% of the variance in the outcome predicted by the independent variables.
+When comparing the stratified models, the male subset fits the data better than the female subset. We expected this outcome due to the higher power obtained from the skewed sample (men n=4605; women n=1762).
+
+
+\
+
+
+## Study Aim 2 - KNN
+
+The KNN analysis is a non-parametric, lazy learning algorithm used for classification and regression. The non-parametric nature of the analysis means that this method does not make any assumptions about the distribution of the dataset. Further, the lazy learning nature of the analysis means that this method does not learn any discriminative functions from the training data. Thus, the algorithm memorizes the training set and keeps all of the training data to make predictions. In our KNN analysis, we looked at increasing odd K values to determine the number in which we would most accurately predict our outcome of mortality from cardiovascular disease in our stratified sample. For the MONICA dataset, we would have a 38% chance of predicting an outcome of 'dead' and a 65% chance of predicting an outcome of 'live' if selected at random. After stratifying the data by sex, we took a proportion of 70% for the training sets and a proportion of 30% for the test sets. For the purposes of our analysis, we grouped the two numeric explanatory variables into categories.^3^ 
+
+```{r include=F}
+set.seed(1)
+monica.na <- monica
+monica.na <- na_if(monica.na, 'nk')
+```
+
+
+```{r include=F}
+set.seed(1)
+# Prepare the data set
+# make copy named 'monica_class', drop extra columns and drop missing values
+monica_class <- monica.na
+monica_class$X <- NULL
+monica_class <- monica_class[complete.cases(monica_class),]
+sum(is.na(monica_class))
+# Create categorical variable for year of onset and drop extra columns
+monica_class$yronsetcat <- cut(monica_class$yronset, c(8.45, 89.5, 94.5))
+monica_class$agecat <- cut(monica_class$age, c(34.5, 39.5, 49.5, 59.5, 69.5))
+monica_class$yronset <- NULL
+monica_class$age <- NULL
+# outcome as factor
+monica_class$outcome <- as.factor(monica_class$outcome)
+# dummy code categorical variables with 2 levels
+monica_class$sex <- ifelse(monica_class$sex == 'f', 1,0)
+monica_class$premi <- ifelse(monica_class$premi == 'y',1,0)
+monica_class$diabetes <- ifelse(monica_class$diabetes == 'y',1,0)
+monica_class$highbp <- ifelse(monica_class$highbp == 'y',1,0)
+monica_class$hichol <- ifelse(monica_class$hichol == 'y',1,0)
+monica_class$angina <- ifelse(monica_class$angina == 'y',1,0)
+monica_class$stroke <- ifelse(monica_class$stroke == 'y',1,0)
+monica_class$hosp <- ifelse(monica_class$hosp == 'y',1,0)
+monica_class$yronsetcat <- ifelse(monica_class$yronsetcat == '(8.45,89.5]',1,0)
+# dummy code categorical values with 3 levels or more
+monica_class$smstat <- as.numeric(revalue(monica_class$smstat, c("n"=0, "x"=1,"c"=2))) 
+monica_class$agecat <- as.numeric(revalue(monica_class$agecat, c("(34.5,39.5]"=0, "(39.5,49.5]"=1,
+                                                          "(49.5,59.5]"=2, "(59.5,69.5]"=3)))
+str(monica_class)
+
+```
+
+
+```{r include=F}
+set.seed(1)
+table(monica_class$`outcome`)[1]/ sum(table(monica_class$`outcome`))*100
+```
+
+
+```{r echo=F, include=F}
+set.seed(1)
+set.seed(1) #set seed to make the partition reproducible
+monica_sample = sample(1:nrow(monica_class), round(0.7 * nrow(monica_class), 0), replace = FALSE)
+length(monica_sample) / nrow(monica_class) # Check training set has 70% of data
+monica_train <- monica_class[monica_sample, ]
+monica_test <- monica_class[-monica_sample, ]
+nrow(monica_test)
+nrow(monica_train)
+```
+
+```{r echo=F, include=F}
+set.seed(1)
+# set Y labels
+monica.trainLabels <- monica_class[monica_sample, 1]
+monica.testLabels <- monica_class[-monica_sample, 1]
+length(monica.testLabels)
+length(monica.trainLabels)
+```
+
+### KNN Results - Entire Dataset
+
+
+#### Classifier with 3-nearest neighbors
+
+```{r echo=F, warning=F, message=F}
+set.seed(1)
+# k=3
+# Run the model using `class` package.
+predict3NN = knn(train= monica_train[, c(2:12)],
+                 test = monica_test[, c(2:12)], 
+                 cl = monica.trainLabels, k = 3)
+
+#table(predict3NN)
+loadPkg("gmodels")
+cross3NN <- CrossTable(monica.testLabels, predict3NN, prop.chisq = FALSE)
+```
+
+* When reading the first row, we see that the model classified 330 of 504 "dead" cases correctly, and it classified 174 "dead" cases incorrectly. 
+
+* The model performed better when classfying "live": the model classified 931 of 963 "live" cases correctly, and 32 cases incorrectly. 
+
+```{r echo=F, include=F}
+set.seed(1)
+# percentage classified correctly
+dead3NN <- round((330/504)*100,1)
+live3NN <- round((931/963)*100,1)
+```
+
+```{r echo=F, include=F}
+set.seed(1)
+# check confusion matrix and accuracy for k = 3
+kNN3_res = table(predict3NN, monica_test$`outcome`)
+#kNN3_res
+#sum(kNN3_res)  #<- the total is all the test examples
+# Select the true positives and true negatives 
+kNN3_res[row(kNN3_res) == col(kNN3_res)]
+# Calculate accuracy rate 
+kNN3_acc = sum(kNN3_res[row(kNN3_res) == col(kNN3_res)]) / sum(kNN3_res)
+kNN3_acc
+```
+
+* The classifier has an accuracy of `r round(kNN3_acc *100,2)` %. 
+
+#### Classifier 5-nearest neighbors
+
+```{r echo=F, warning=F}
+set.seed(1)
+# k=5
+predict5NN = knn(train= monica_train[, c(2:12)],
+                 test = monica_test[, c(2:12)], 
+                 cl = monica.trainLabels, k = 5)
+
+#table(predict5NN)
+loadPkg("gmodels")
+cross5NN <- CrossTable(monica.testLabels, predict5NN, prop.chisq = FALSE)
+```
+
+* The model classified 327 of 504 "dead" cases correctly, and 177 cases incorrectly. 
+
+* The model classified 948 of 963 "live" cases correctly, and 15 cases incorrectly. 
+
+```{r echo=F, include=F}
+set.seed(1)
+# percentage classified correctly
+dead5NN <- round((327/504)*100,1)
+live5NN <- round((948/963)*100,1)
+```
+
+```{r echo=F, include=F}
+set.seed(1)
+# check confusion matrix and accuracy for k = 5
+kNN5_res = table(predict5NN, monica_test$`outcome`)
+#kNN5_res
+kNN5_res[row(kNN5_res) == col(kNN5_res)]
+kNN5_acc = sum(kNN5_res[row(kNN5_res) == col(kNN5_res)]) / sum(kNN5_res)
+kNN5_acc
+```
+
+* The classifier has an accuracy of `r round(kNN5_acc *100,2)` %. 
+
+#### Classifier with 7-nearest neighbors
+
+```{r echo=F, warning=F}
+set.seed(1)
+# k=7
+predict7NN = knn(train= monica_train[, c(2:12)],
+                 test = monica_test[, c(2:12)], 
+                 cl = monica.trainLabels, k = 7)
+
+#table(predict7NN)
+loadPkg("gmodels")
+cross7NN <- CrossTable(monica.testLabels, predict7NN, prop.chisq = FALSE)
+```
+
+* The model classified 329 of 504 "dead" cases correctly, and 175 cases incorrectly. 
+
+* The model classified 960 of 963 "live" cases correctly, and 3 cases incorrectly. 
+
+```{r echo=F, include=F}
+set.seed(1)
+# percentage classified correctly
+dead7NN <- round((329/504)*100,1)
+live7NN <- round((960/963)*100,1)
+```
+
+```{r echo=F, include=F}
+set.seed(1)
+# check confusion matrix and accuracy for k = 7
+kNN7_res = table(predict7NN, monica_test$`outcome`)
+#kNN7_res
+kNN7_res[row(kNN7_res) == col(kNN7_res)]
+kNN7_acc = sum(kNN7_res[row(kNN7_res) == col(kNN7_res)]) / sum(kNN7_res)
+kNN7_acc
+```
+
+* The classifier has an accuracy of `r round(kNN7_acc *100,2)` %. 
+
+#### Predict optimal number of K
+
+```{r echo=F, include=F}
+set.seed(1)
+# function
+chooseK = function(k, train_set, val_set, train_class, val_class){
+  set.seed(1)
+  class_knn = knn(train = train_set,    #<- training set cases
+                  test = val_set,       #<- test set cases
+                  cl = train_class,     #<- category for classification
+                  k = k,                #<- number of neighbors considered
+                  use.all = TRUE)       #<- control ties between class assignments
+                                        #   If true, all distances equal to the kth 
+                                        #   largest are included
+  
+  tab = table(class_knn, val_class)
+  # Calculate the accuracy.
+  accu = sum(tab[row(tab) == col(tab)]) / sum(tab)                         
+  cbind(k = k, accuracy = accu)
+}
+```
+
+```{r echo=F, warning=F}
+set.seed(1)
+knn_different_k = sapply(seq(1, 21, by = 2),  #<- set k to be odd number from 1 to 21
+                         function(x) chooseK(x, 
+                                             train_set = monica_train[, c(2:12)],
+                                             val_set = monica_test[, c(2:12)],
+                                             train_class = monica.trainLabels,
+                                             val_class = monica.testLabels))
+# Reformat the results to graph the results.
+#str(knn_different_k)
+knn_different_k = data.frame(k = knn_different_k[1,],
+                             accuracy = knn_different_k[2,])
+
+# Plot accuracy vs. k.
+# install.packages("ggplot2")
+loadPkg("ggplot2")
+
+ggplot(knn_different_k,
+       aes(x = k, y = accuracy)) +
+  geom_line(color = "green", size = 1.5) +
+  geom_point(size = 3)
+```
+
+As the graph shows, it seems that **7-nearest neighbors** show the greatest improvement in predictive accuracy.
+
+
+### KNN Results - Female Subset
+
+
+```{r echo=F, include=F}
+set.seed(1)
+# subset women and run KNN all predictors
+monica_class_women <- subset(monica_class, sex==1)
+monica_class_women$sex <- NULL
+str(monica_class_women)
+
+set.seed(1) #set seed to make the partition reproducible
+women_train_rows = sample(1:nrow(monica_class_women), round(0.7 * nrow(monica_class_women), 0), replace = FALSE)
+length(women_train_rows) / nrow(monica_class_women) # Check training set has 70% of data
+women.Train <- monica_class_women[women_train_rows, ]
+women.Test <- monica_class_women[-women_train_rows, ]
+nrow(women.Train)
+nrow(women.Test)
+```
+
+At random, we have an 34.1% chance of correctly picking outcome=dead for female population.
+
+```{r include=F}
+set.seed(1)
+table(monica_class_women$`outcome`)[1]/ sum(table(monica_class_women$`outcome`))*100
+```
+
+```{r echo=F, include=F}
+set.seed(1)
+# set Y labels
+women.trainLabels <- monica_class_women[women_train_rows, 1]
+women.testLabels <- monica_class_women[-women_train_rows, 1]
+length(women.trainLabels)
+length(women.testLabels)
+```
+
+#### Predict optimal number of K
+
+```{r echo=F}
+set.seed(1)
+knn_different_k = sapply(seq(1, 21, by = 2),  #<- set k to be odd number from 1 to 21
+                         function(x) chooseK(x, 
+                                             train_set = women.Train[, c(2:11)],
+                                             val_set = women.Test[, c(2:11)],
+                                             train_class = women.trainLabels,
+                                             val_class = women.testLabels))
+# Reformat the results to graph the results.
+#str(knn_different_k)
+knn_different_k = data.frame(k = knn_different_k[1,],
+                             accuracy = knn_different_k[2,])
+
+# Plot accuracy vs. k.
+# install.packages("ggplot2")
+loadPkg("ggplot2")
+
+ggplot(knn_different_k,
+       aes(x = k, y = accuracy)) +
+  geom_line(color = "red", size = 1.5) +
+  geom_point(size = 3)
+```
+
+As the graph shows, it seems that 3-nearest neighbors show the greatest improvement in predictive accuracy for the female population.
+
+
+##### Classifier with 3-nearest neighbors
+
+```{r echo=F, warning=F}
+set.seed(1)
+# k=3
+# Women
+predict3NN.women = knn(train= women.Train[, c(2:11)],
+                 test = women.Test[, c(2:11)], 
+                 cl = women.trainLabels, k = 3)
+
+#table(predict3NN)
+loadPkg("gmodels")
+cross3NN.women <- CrossTable(women.testLabels, predict3NN.women, prop.chisq = FALSE)
+```
+
+* The model classified 74 of 126 "dead" cases correctly, and it classified 52 cases incorrectly. 
+
+* The model classified 257 of 263 "live" cases correctly, and 6 cases incorrectly. 
+
+```{r echo=F, include=F}
+set.seed(1)
+# percentage classified correctly
+dead3NN.women <- round((74/126)*100,1)
+live3NN.women <- round((257/263)*100,1)
+dead3NN.women
+live3NN.women
+```
+
+```{r echo=F, include=F}
+set.seed(1)
+# check confusion matrix and accuracy for k = 3, women
+kNN3_res.women = table(predict3NN.women, women.Test$`outcome`)
+#kNN3_res
+#sum(kNN3_res)  
+# Select the true positives and true negatives 
+kNN3_res.women[row(kNN3_res.women) == col(kNN3_res.women)]
+# Calculate accuracy rate 
+kNN3_acc.women = sum(kNN3_res.women[row(kNN3_res.women) == col(kNN3_res.women)]) / sum(kNN3_res.women)
+kNN3_acc.women
+```
+
+* The classifier has an accuracy of `r round(kNN3_acc.women*100,2)`%.
+
+#### Subset significant risk factors for women
+
+We ran the classifier with the combination of risk factors that most accurately predict mortality from cardiovascular disease according to the results of the multivariate logistic regression model for the female subset. The combination of risk factors for women is: Hospitalization, High cholesterol, Smoking status and Angina.
+
+```{r echo=F, include=F}
+set.seed(1)
+w.sub <- subset(monica_class_women, select = c("outcome","hosp","hichol","smstat","angina"))
+str(w.sub)
+```
+
+```{r echo=F, warning=F}
+set.seed(1)
+# split the data into training (70%) and test (30%)
+set.seed(1) 
+w.sub.trainRows = sample(1:nrow(w.sub), round(0.7 * nrow(w.sub), 0), replace = FALSE)
+# Create test and training sets
+w.sub.Train = w.sub[w.sub.trainRows, ]
+w.sub.Test = w.sub[-w.sub.trainRows, ]
+#nrow(w.sub.Test)
+# Split outcome variables into training and tests 
+w.sub.trainLabels <- w.sub[w.sub.trainRows, 1]
+w.sub.testLabels <- w.sub[-w.sub.trainRows, 1]
+
+# Run the model with class package and with k=3
+predict3NN.w.sub = knn(train= w.sub.Train[, c(2:5)],
+                 test = w.sub.Test[, c(2:5)], 
+                 cl = w.sub.trainLabels, k = 3)
+
+loadPkg("gmodels")
+cross3NN.w.sub <- CrossTable(w.sub.testLabels, predict3NN.w.sub, prop.chisq = FALSE)
+```
+
+With this subset of risk factors, our model shows the highest accuracy for predicting live. However, the model is not a good fit for predicting dead:
+
+* The model classified 71 of 126 "dead" cases correctly, and it classified 55 cases incorrectly. 
+
+* The model classified 263 of 263 "live" cases correctly. 
+
+```{r echo=F, include=F}
+set.seed(1)
+# percentage classified correctly
+dead3NN.w.sub <- round((71/126)*100,1)
+live3NN.w.sub <- round((263/263)*100,1)
+dead3NN.w.sub
+live3NN.w.sub
+
+```
+
+```{r echo=F, include=F}
+set.seed(1)
+# check confusion matrix and accuracy for k = 3, women-subset 
+kNN3_res.w.sub = table(predict3NN.w.sub, w.sub.Test$`outcome`)
+#kNN3_res
+#sum(kNN3_res)  
+# Select the true positives and true negatives 
+kNN3_res.w.sub[row(kNN3_res.w.sub) == col(kNN3_res.w.sub)]
+# Calculate accuracy rate 
+kNN3_acc.w.sub = sum(kNN3_res.w.sub[row(kNN3_res.w.sub) == col(kNN3_res.w.sub)]) / sum(kNN3_res.w.sub)
+kNN3_acc.w.sub
+```
+
+* The classifier has an accuracy of `r round(kNN3_acc.w.sub*100,2)`%.
+
+
+### KNN Results - Male Subset
+
+```{r echo=F, include=F}
+set.seed(1)
+# subset men and run KNN with all predictors
+monica_class_men <- subset(monica_class, sex==0)
+monica_class_men$sex <- NULL
+str(monica_class_men)
+
+men_train_rows = sample(1:nrow(monica_class_men), round(0.7 * nrow(monica_class_men), 0), replace = FALSE)
+length(men_train_rows) / nrow(monica_class_men) # Check training set has 70% of data
+men.Train <- monica_class_men[men_train_rows, ]
+men.Test <- monica_class_men[-men_train_rows, ]
+nrow(men.Train)
+nrow(men.Test)
+```
+
+At random, we have an 35% chance of correctly picking outcome=dead for male population.
+
+```{r include=F}
+set.seed(1)
+table(monica_class_men$`outcome`)[1]/ sum(table(monica_class_men$`outcome`))*100
+```
+
+```{r echo=F, include=F}
+set.seed(1)
+# set Y labels
+men.trainLabels <- monica_class_men[men_train_rows, 1]
+men.testLabels <- monica_class_men[-men_train_rows, 1]
+length(men.trainLabels)
+length(men.testLabels)
+```
+
+#### Predict optimal number of K
+
+```{r echo=F}
+set.seed(1)
+knn_different_k = sapply(seq(1, 21, by = 2),  #<- set k to be odd number from 1 to 21
+                         function(x) chooseK(x, 
+                                             train_set = men.Train[, c(2:11)],
+                                             val_set = men.Test[, c(2:11)],
+                                             train_class = men.trainLabels,
+                                             val_class = men.testLabels))
+# Reformat the results to graph the results.
+#str(knn_different_k)
+knn_different_k = data.frame(k = knn_different_k[1,],
+                             accuracy = knn_different_k[2,])
+
+# Plot accuracy vs. k.
+# install.packages("ggplot2")
+loadPkg("ggplot2")
+
+ggplot(knn_different_k,
+       aes(x = k, y = accuracy)) +
+  geom_line(color = "purple", size = 1.5) +
+  geom_point(size = 3)
+```
+
+As the graph shows, it seems that 9-nearest neighbors show the greatest improvement in predictive accuracy for the male population.
+
+
+#### Classifier with 9-nearest neighbors
+
+```{r echo=F}
+set.seed(1)
+# k=9
+# men
+predict9NN.men = knn(train= men.Train[, c(2:11)],
+                 test = men.Test[, c(2:11)], 
+                 cl = men.trainLabels, k = 9)
+
+#table(predict13NN)
+loadPkg("gmodels")
+cross9NN.men <- CrossTable(men.testLabels, predict9NN.men, prop.chisq = FALSE)
+```
+
+* The model classified 249 of 364 "dead" cases correctly, and it classified 115 cases incorrectly. 
+
+* The model classified 708 of 713 "live" cases correctly, and 5 case incorrectly. 
+
+```{r echo=F, include=F}
+set.seed(1)
+# percentage classified correctly
+dead9NN.men <- round((249/364)*100,1)
+live9NN.men <- round((708/713)*100,1)
+dead9NN.men
+live9NN.men
+```
+
+```{r echo=F, include=F}
+set.seed(1)
+# check confusion matrix and accuracy for k = 3, women
+kNN9_res.men = table(predict9NN.men, men.Test$`outcome`)
+
+# Select the true positives and true negatives 
+kNN9_res.men[row(kNN9_res.men) == col(kNN9_res.men)]
+# Calculate accuracy rate 
+kNN9_acc.men = sum(kNN9_res.men[row(kNN9_res.men) == col(kNN9_res.men)]) / sum(kNN9_res.men)
+kNN9_acc.men
+```
+
+* The classifier has an accuracy of `r round(kNN9_acc.men*100,2)`%. 
+
+
+#### Subset significant risk factors for men
+
+We ran the classifier with different subsets of risk factors with the aim of increasing the predictive accuracy for mortality of our KNN model. The predictors or risk factors with the highest predictive accuracy are: Hospitalization, Year of onset, Age at diagnosis, High blood pressure, Previous myocardial infarction and Stroke. 
+
+```{r echo=F, include=F}
+set.seed(1)
+m.sub <- subset(monica_class_men, select = c("outcome","hosp","agecat","premi","stroke","yronsetcat","highbp"))
+str(m.sub)
+```
+
+
+```{r echo=F}
+set.seed(1)
+# split the data into training (70%) and test (30%)
+m.sub.trainRows = sample(1:nrow(m.sub), round(0.7 * nrow(m.sub), 0), replace = FALSE)
+# Create test and training sets
+m.sub.Train = m.sub[m.sub.trainRows, ]
+m.sub.Test = m.sub[-m.sub.trainRows, ]
+#nrow(w.sub.Test)
+# Split outcome variables into training and tests 
+m.sub.trainLabels <- m.sub[m.sub.trainRows, 1]
+m.sub.testLabels <- m.sub[-m.sub.trainRows, 1]
+
+# Run the model with class package and with k=3
+predict9NN.m.sub = knn(train= m.sub.Train[, c(2:7)],
+                 test = m.sub.Test[, c(2:7)], 
+                 cl = m.sub.trainLabels, k = 9)
+
+loadPkg("gmodels")
+cross9NN.m.sub <- CrossTable(m.sub.testLabels, predict9NN.m.sub, prop.chisq = FALSE)
+```
+
+With this subset of risk factors, our model shows the highest accuracy for predicting live. However, the model is not a good fit for predicting dead:
+
+* The model classified 253 of 364 "dead" cases correctly, and it classified 111 cases incorrectly. 
+
+* The model classified 713 of 713 "live" cases correctly. 
+
+```{r echo=F, include=F}
+set.seed(1)
+# percentage classified correctly
+dead9NN.m.sub <- round((253/364)*100,1)
+live9NN.m.sub <- round((713/713)*100,1)
+dead9NN.m.sub
+live9NN.m.sub
+```
+
+```{r echo=F, include=F}
+set.seed(1)
+# check confusion matrix and accuracy for k = 3, women-subset 
+kNN9_res.m.sub = table(predict9NN.m.sub, m.sub.Test$`outcome`)
+# Select the true positives and true negatives 
+kNN9_res.m.sub[row(kNN9_res.m.sub) == col(kNN9_res.m.sub)]
+# Calculate accuracy rate 
+kNN9_acc.m.sub = sum(kNN9_res.m.sub[row(kNN9_res.m.sub) == col(kNN9_res.m.sub)]) / sum(kNN9_res.m.sub)
+kNN9_acc.m.sub
+```
+
+* The classifier has an accuracy of `r round(kNN9_acc.m.sub*100,2)`%.
+
+### KNN: Key Takeaways
+
+Overall, the results from our KNN model show that it performs well for classifying 'live' but has limited accuracy for classifying 'dead'.
+
+
+
+**Classify outcome with entire dataset**
+
+When analyzing the entire dataset, as the K value increases, so does the predictive quality for 'live,' but not for 'dead.'
+For the unstratified dataset, 7 K values were optimal for predicting 'live' (`r live7NN`%), while 3 K values were optimal for predicting 'dead' (`r dead3NN`%).
+
+| k | Accuracy|'dead' correctly classified | 'live' correctly classified| 
+|---|----------|-----------|--------|
+|3|`r round(kNN3_acc*100,2)`%|`r dead3NN`% |`r live3NN`%|
+|5|`r round(kNN5_acc*100,2)`%|`r dead5NN`% |`r live5NN`%|
+|7|`r round(kNN7_acc*100,2)`%|`r dead7NN`% |`r live7NN`%|
+
+
+
+**Classify outcome for women**
+
+For the female subset, the optimal K value was 3.
+By running the classifier with only a subset of 4 risk factors, we can see that the model has a slightly better predictive accuracy (`r round(kNN3_acc.w.sub*100,2)`%) than the classifier with all risk factors (`r round(kNN3_acc.women*100,2)`%).
+Also, it is worth noting that the classifier with a subset of 4 risk factors has a predictive accuracy of `r live3NN.w.sub`% for outcome 'live'. The subset of 4 risk factors for women are: Hospitalization, High cholesterol, Smoking status, and Angina.
+
+|Number of predictors| Accuracy |'dead' correctly classified | 'live' correctly classified|
+|--------------------|----------|----------------------------|-------------------|
+|All                   |`r round(kNN3_acc.women*100,2)`%|`r dead3NN.women`% |`r live3NN.women`%|
+|Subset of 4 predictors|`r round(kNN3_acc.w.sub*100,2)`%|`r dead3NN.w.sub`% |`r live3NN.w.sub`%|
+
+
+
+**Classify outcome for men**
+
+For the male subset, the optimal K value was 9.
+By running the classifier with only a subset of 6 risk factors, the model achieved the largest predictive accuracy (`r round(kNN9_acc.m.sub*100,2)`%) as compared to the classifier with all risk factors (`r round(kNN9_acc.men*100,2)`%).
+Finally, with a subset of 6 risk factors, the classifier has a predictive accuracy of `r live9NN.m.sub`% for outcome 'live'. The subset of 6 risk factors for men are: Hospitalization, Year of onset, Age at diagnosis, High blood pressure, Previous myocardial infarction, and Stroke.
+
+|Number of predictors| Accuracy |'dead' correctly classified | 'live' correctly classified|
+|--------------------|----------|----------------------------|-------------------|
+|All                   |`r round(kNN9_acc.men*100,2)`%|`r dead9NN.men`% |`r live9NN.men`%|
+|Subset of 6 predictors|`r round(kNN9_acc.m.sub*100,2)`%|`r dead9NN.m.sub`% |`r live9NN.m.sub`%|
+
+
+\
+
+
+## Study Aim 3 - Decision Trees
+
+Decision trees can be used in statistics to identify which explanatory variables are most important for predicting the outcome.4 In our analysis, we used a classification decision tree due to our categorical, dichotomous dependent variable of mortality from cardiovascular disease. The dataset was first stratified by sex, then we found the most significant factors using Bayesian Information Criteria. The decision tree was then built using these factors. Lastly we used random forest to find the accuracy of predicting death.^4^
+
+
+```{r processing1, include=F}
+#Copy dataset
+monica.na <- monica
+```
+
+### BIC - Feature Selection
+
+
+```{r , echo=F, include=F}
+#Subset by sex
+monica.f <- subset(monica.na, sex == 'f')
+monica.m <- subset(monica.na, sex == 'm')
+str(monica.m)
+str(monica.f)
+```
+
+
+```{r featuresubsetselectionf, echo=FALSE, warning=FALSE, include=F}
+regfit.full = regsubsets(outcome ~ ., data = monica.f,nvmax = 14)
+summary(regfit.full)
+```
+
+```{r, echo=F, include=TRUE}
+plot(regfit.full,scale="bic",main="Bayesian information criterion for Females")
+```
+
+For females and according to BIC, hospitalization, angina and year of onset are the most significant.
+
+
+
+```{r featuresubsetselectionm, warning=FALSE,echo=FALSE ,include=F}
+regfit.full = regsubsets(outcome ~ ., data = monica.m,nvmax = 14)
+summary(regfit.full)
+```
+
+
+```{r, echo=F, include=TRUE}
+plot(regfit.full,scale="bic",main="Bayesian information criterion for Males")
+```
+
+For males, according to BIC hospitalization, high cholesterol, stroke, previous myocardial infarction, smoking status,  year of onset and high blood pressure are the most significant.
+
+
+\
+
+
+### Decision Trees
+
+
+\
+
+
+#### Female Subset
+
+**Decision trees for females subsetting by: hospitalization, angina and year of onset**
+
+```{r dctrees2, echo=F,include=TRUE}
+# tree model for females
+modelf<- rpart(outcome~yronset+hosp+angina, data=monica.f)
+par(xpd = NA, mar = rep(0.7, 4)) 
+plot(modelf, compress = TRUE)
+text(modelf, cex = 0.7, use.n = TRUE, fancy = TRUE, all = TRUE)
+rpart.plot(modelf, extra = 104, nn = TRUE)
+fancyRpartPlot(modelf)
+```
+
+
+
+```{r, include=F}
+fullmodelf <- rpart(outcome~., data=monica.f)
+par(xpd = NA, mar = rep(0.7, 4)) 
+plot(fullmodelf, compress = TRUE)
+text(fullmodelf, cex = 0.7, use.n = TRUE, fancy = FALSE, all = TRUE)
+rpart.plot(fullmodelf, extra = 104, nn = TRUE)
+fancyRpartPlot(fullmodelf)
+```
+
+**Decision tree for females using all the features**
+
+
+```{r, include=T, warning=F, message=F, echo=F}
+fulltreeff <- C5.0(outcome~., data=monica.f)
+plot(fulltreeff)
+```
+
+**Accuracy measure**
+
+**For subset of features**:
+```{r acctreemsub2, echo=F, include=T}
+cm1 = confusionMatrix( predict(modelf, type = "class"), reference = monica.f[, "outcome"] )
+cm1
+```
+
+**For all features**:
+
+```{r accfullf, echo=F, include=T}
+cmf = confusionMatrix( predict(fullmodelf, type = "class"), reference = monica.f[, "outcome"] )
+cmf
+```
+
+
+\
+
+
+#### Male Subset
+
+
+**Decision trees for males subsetting by: hospitalization, high cholesterol, stroke, previous myocardial infarction, smoking status,  year of onset and high blood pressure**
+
+
+```{r dctrees3, echo=F, include=TRUE}
+# tree model for males
+modelm <- rpart(outcome~yronset+premi+smstat+highbp+hichol+stroke+hosp, data=monica.m)
+par(xpd = NA, mar = rep(0.7, 4)) 
+plot(modelm, compress = TRUE)
+text(modelm, cex = 0.7, use.n = TRUE, fancy = FALSE, all = TRUE)
+rpart.plot(modelm, extra = 104, nn = TRUE)
+fancyRpartPlot(modelm)
+```
+
+
+```{r, echo=F, include=F}
+fullmodelm <- rpart(outcome~., data=monica.m)
+par(xpd = NA, mar = rep(0.7, 4)) 
+plot(modelm, compress = TRUE)
+text(modelm, cex = 0.7, use.n = TRUE, fancy = FALSE, all = TRUE)
+rpart.plot(modelm, extra = 104, nn = TRUE)
+fancyRpartPlot(modelm)
+```
+
+
+
+**Decision tree for males using all the features**
+```{r, echo=F, include=T}
+
+fulltreemm <- C5.0(outcome~., data=monica.m)
+plot(fulltreemm)
+
+```
+
+**Accuracy measure**:
+
+
+**For subset of features**:
+
+```{r acctreemsub3, echo=F, include=T}
+loadPkg("caret") 
+cm = confusionMatrix( predict(modelm, type = "class"), reference = monica.m[, "outcome"] )
+cm
+```
+
+**For all features**:
+
+```{r accfullm, echo=F, include=T}
+loadPkg("caret") 
+cmm = confusionMatrix( predict(fullmodelm, type = "class"), reference = monica.m[, "outcome"] )
+cmm
+```
+
+
+
+```{r traintestm, echo=F, include=TRUE}
+#Splitting the data into training and testing data stratified by sex (females)
+set.seed(1234)
+train_index <- sample(seq_len(nrow(monica.f)), size = 0.8*nrow(monica.f))
+monica.f_train<-monica.f[train_index, ]
+monica.f_test<-monica.f[-train_index, ]
+```
+
+
+```{r traintestm12, echo=F, include=TRUE}
+#Splitting the data into training and testing data stratified by sex (males)
+set.seed(1234)
+train_index <- sample(seq_len(nrow(monica.m)), size = 0.8*nrow(monica.m))
+monica.m_train<-monica.m[train_index, ]
+monica.m_test<-monica.m[-train_index, ]
+```
+
+
+### Prediction and Accuracy Measure
+
+**Accuracy measure for tree for full dataset statified by sex (female)**
+
+```{r pred_evalfullf, echo=F, include=TRUE}
+monica.f_pred<-predict(fulltreeff, monica.f_test[ ,-c(2)])  #elimnating outcome variable which would be our predictor 
+confusionMatrix(table(monica.f_pred, monica.f_test$outcome))
+```
+
+**Accuracy measure for tree for full dataset statified by sex (male)**
+
+```{r pred_evalfullm, echo=F, include=TRUE}
+monica.m_pred<-predict(fulltreemm, monica.m_test[ ,-c(2)])  #elimnating outcome variable which would be our predictor 
+confusionMatrix(table(monica.m_pred, monica.m_test$outcome))
+```
+
+
+```{r traintestm1, echo=F, include=TRUE}
+set.seed(1234)
+train_index <- sample(seq_len(nrow(monica.m)), size = 0.8*nrow(monica.m))
+monica.m_train<-monica.m[train_index, ]
+monica.m_test<-monica.m[-train_index, ]
+```
+
+### Random Forest
+
+#### Female Subset
+
+```{r randomforestf, echo=F, include=T}
+#Subset by sex
+monica.no.na<-monica
+monica.no.na<-subset(monica.no.na, na.rm = TRUE)
+monica.f <- subset(monica.no.na, sex == 'f')
+set.seed(100)
+train <- sample(nrow(monica.f), 0.7*nrow(monica.f), replace = FALSE)
+TrainSet <- monica.f[train,]
+ValidSet <- monica.f[-train,]
+summary(TrainSet)
+summary(ValidSet)
+modelff <- randomForest(outcome ~ ., data = TrainSet, importance = TRUE)
+modelff
+```
+
+#### Male Subset
+
+```{r randomforestm, echo=F, include=T}
+#Subset by sex
+monica.no.na<-monica
+monica.no.na<-subset(monica.no.na, na.rm = TRUE)
+monica.m <- subset(monica.no.na, sex == 'm')
+set.seed(100)
+train <- sample(nrow(monica.m), 0.7*nrow(monica.m), replace = FALSE)
+TrainSet <- monica.m[train,]
+ValidSet <- monica.m[-train,]
+summary(TrainSet)
+summary(ValidSet)
+modelmm <- randomForest(outcome ~ ., data = TrainSet, importance = TRUE)
+modelmm
+```
+
+### Decision Trees and Random Forest: Key Takeaways
+
+The results of the decision tree analysis, generated after feature selection for females, found hospitalization and angina to the most important factors. When we generated a tree using the entire dataset we found that hospitalization and high blood pressure were the most important features. 
+
+The decision tree that was generated after feature selection for males found hospitalization and high blood pressure to be the most important factors. When we generated a tree using the entire dataset we found that hospitalization, diabetes, high blood pressure and age of diagnosis were the most important features.
+
+We used 500 trees for the random forest analysis. It was used to predict death. The error rate for females was higher than that for males.
+
+
+\
+
+
+## Project 2: Summary Conclusions
+
+- The full model does not fit the data very well. 
+
+- Hospitalization status was the strongest predictor of cardiovascular mortality. 
+
+- In comparing the different analytical methods used, we conclude that:
+   * Overall, the KNN method outperforms the multivariable logistic regression model, which produced McFadden R2 values in the moderate range of 55-65%.
+   * The KNN method produced the most accurate predictions of the outcome live. While the KNN method did poorly with predicting death, the model was nearly perfect in predicting which participants would not experience the outcome; it reached an 100% accuracy prediction level when stratified by sex and subsetting different risk factors.
+   * The Decision Tree method produced the most accurate predictions of the outcome dead for men (77%), wheareas Random Forest produced the most accurate predicitons of the outcome dead for women (78.6%).
+   * Finally, while both the models consistently identified hospitalization as the strongest predictor, subsequent predictors were contradictory.
+
+- These analyses would have been more robust if quantitative variables were collected. 
+
+- Study validity:
+   * Moderate internal validity: (+) strong sampling methods, (-) high rate of missing values.
+   * Moderate external validity: representative to a European male population 
+
+
+\
+
+
+## Bibliography
+
+1. The World Health Organization. Background, Development and Organization of MONICA. WHO MONICA Project e-publications. January 4, 2013.
+https://www.thl.fi/publications/monica/index.html
+
+2. Lo, Edwin. (2019) Data Science Generalized Linear Models: Logistic Regression. Lecture. [PowerPoint slides]. Retreived from https://blackboard.gwu.edu/webapps/blackboard/execute/content/file?cmd=view&content_id=_9827630_1&course_id=_322369_1
+
+3. Lo, Edwin. (2019) K-Nearest Neighbor (KNN) K Means. Lecture. [PowerPoint slides]. Retreived from https://blackboard.gwu.edu/webapps/blackboard/execute/content/file?cmd=view&content_id=_9837923_1&course_id=_322369_1
+
+4. Lo, Edwin. (2019) Decision Trees. Lecture. [PowerPoint slides]. Retreived from https://blackboard.gwu.edu/webapps/blackboard/execute/content/file?cmd=view&content_id=_9853452_1&course_id=_322369_1
+
+
+
+```{r, include=F}
+#it is best practice to detach packages when not needed anymore
+detach("package:pscl", unload = T)
+```
